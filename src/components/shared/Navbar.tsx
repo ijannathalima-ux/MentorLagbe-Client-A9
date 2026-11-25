@@ -33,7 +33,7 @@ export default function Navbar({ user = null, onSignOut = () => {} }: NavbarProp
     { name: "Home", href: "/" },
     { name: "Browse Tuitions", href: "/tuitions" },
     { name: "Pricing", href: "/pricing" },
-    { name: "How It Works", href: "/#how-it-works" },
+    { name: "About", href: "/about" },
   ];
 
   const isActive = (href: string): boolean => {

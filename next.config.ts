@@ -5,6 +5,14 @@ const nextConfig: NextConfig = {
   experimental: {
     agentFeedback: true,
   },
+   images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: "i.postimg.cc",
+      },
+    ],
+  },
   cacheComponents: true,
   partialPrefetching: true,
   reactCompiler: true,

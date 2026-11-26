@@ -1,10 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Menu, X, GraduationCap, LayoutDashboard, User, LogOut } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import {
+  Menu,
+  X,
+  GraduationCap,
+  LayoutDashboard,
+  User,
+  LogOut,
+  ChevronDown,
+} from "lucide-react";
 import Image from "next/image";
+import toast from "react-hot-toast";
+import { authClient } from "@/lib/auth-client";
 
 export type UserRole = "student" | "tutor" | "admin";
 
@@ -25,9 +35,30 @@ interface NavItem {
   href: string;
 }
 
-export default function Navbar({ user = null, onSignOut = () => {} }: NavbarProps) {
+export default function Navbar({ user: propUser = null, onSignOut }: NavbarProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState<boolean>(false);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
+
   const pathname = usePathname();
+  const router = useRouter();
+
+  const { data: session, isPending } = authClient.useSession();
+  const user = (session?.user as NavbarUser | undefined) ?? propUser;
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (
+        profileMenuRef.current &&
+        !profileMenuRef.current.contains(event.target as Node)
+      ) {
+        setProfileMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
 
   const navLinks: NavItem[] = [
     { name: "Home", href: "/" },
@@ -41,9 +72,41 @@ export default function Navbar({ user = null, onSignOut = () => {} }: NavbarProp
     return pathname.startsWith(href);
   };
 
+  const dashboardHref: string =
+    user?.role === "admin"
+      ? "/dashboard/admin"
+      : user?.role === "tutor"
+        ? "/dashboard/tutor"
+        : "/dashboard/student";
+
   const roleBadgeText: string = user?.role
     ? user.role.charAt(0).toUpperCase() + user.role.slice(1)
     : "Student";
+
+  const handleSignOut = async () => {
+    try {
+      await authClient.signOut({
+        fetchOptions: {
+          onSuccess: async () => {
+            if (onSignOut) {
+              await onSignOut();
+            }
+            toast.success("Signed out successfully.");
+            setProfileMenuOpen(false);
+            setMobileMenuOpen(false);
+            router.push("/sign-in");
+            router.refresh();
+          },
+          onError: (ctx) => {
+            toast.error(ctx.error.message || "Could not sign out.");
+          },
+        },
+      });
+    } catch (err) {
+      console.error(err);
+      toast.error("Something went wrong while signing out.");
+    }
+  };
 
   return (
     <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-slate-200">
@@ -64,20 +127,21 @@ export default function Navbar({ user = null, onSignOut = () => {} }: NavbarProp
             <Link
               key={link.name}
               href={link.href}
-              className={`text-sm font-medium transition ${
-                isActive(link.href)
+              className={`text-sm font-medium transition ${isActive(link.href)
                   ? "text-[#0284C7] font-semibold"
                   : "text-slate-600 hover:text-[#0284C7]"
-              }`}
+                }`}
             >
               {link.name}
             </Link>
           ))}
         </nav>
 
-        {/* Desktop Auth / User Controls */}
+        {/* Desktop Auth / User Profile Dropdown */}
         <div className="hidden md:flex items-center gap-3">
-          {!user ? (
+          {isPending ? (
+            <div className="h-9 w-28 rounded-lg bg-slate-100 animate-pulse" />
+          ) : !user ? (
             <>
               <Link
                 href="/sign-in"
@@ -93,24 +157,20 @@ export default function Navbar({ user = null, onSignOut = () => {} }: NavbarProp
               </Link>
             </>
           ) : (
-            <div className="flex items-center gap-3">
-              <Link
-                href="/dashboard"
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium rounded-lg bg-[#E0F7FF] text-[#0369A1] hover:bg-[#bae6fd] transition"
-              >
-                <LayoutDashboard className="w-4 h-4" />
-                Dashboard
-              </Link>
-
-              <Link
-                href="/dashboard/profile"
-                className="flex items-center gap-2.5 pl-2 pr-3 py-1 rounded-full border border-slate-200 hover:border-[#0284C7]/50 bg-[#F4F8FA] transition"
-                title="Update Profile"
+            <div ref={profileMenuRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setProfileMenuOpen((prev) => !prev)}
+                className="flex items-center gap-2.5 pl-2 pr-3 py-1 rounded-full border border-slate-200 hover:border-[#0284C7]/50 bg-[#F4F8FA] transition cursor-pointer"
+                aria-expanded={profileMenuOpen}
+                aria-haspopup="true"
               >
                 {user.image ? (
                   <Image
                     src={user.image}
                     alt={user.name || "User"}
+                    width={28}
+                    height={28}
                     className="w-7 h-7 rounded-full object-cover"
                   />
                 ) : (
@@ -124,17 +184,55 @@ export default function Navbar({ user = null, onSignOut = () => {} }: NavbarProp
                 <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#0284C7]/15 text-[#0369A1]">
                   {roleBadgeText}
                 </span>
-              </Link>
-
-              <button
-                type="button"
-                onClick={() => void onSignOut()}
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-600 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer"
-                title="Sign Out"
-              >
-                <LogOut className="w-4 h-4" />
-                <span className="hidden lg:inline">Sign Out</span>
+                <ChevronDown
+                  className={`w-4 h-4 text-slate-500 transition-transform duration-200 ${profileMenuOpen ? "rotate-180" : ""
+                    }`}
+                />
               </button>
+
+              {profileMenuOpen && (
+                <div className="absolute right-0 mt-2 w-56 rounded-xl bg-white border border-slate-200 shadow-lg py-1.5 z-50">
+                  <div className="px-3.5 py-2 border-b border-slate-100">
+                    <p className="text-xs font-semibold text-slate-800 truncate">
+                      {user.name || "User"}
+                    </p>
+                    {user.email && (
+                      <p className="text-[11px] text-slate-500 truncate">
+                        {user.email}
+                      </p>
+                    )}
+                  </div>
+
+                  <Link
+                    href={dashboardHref}
+                    onClick={() => setProfileMenuOpen(false)}
+                    className="flex items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-[#E0F7FF] hover:text-[#0369A1] transition"
+                  >
+                    <LayoutDashboard className="w-4 h-4" />
+                    <span>Dashboard</span>
+                  </Link>
+
+                  <Link
+                    href="/dashboard/profile"
+                    onClick={() => setProfileMenuOpen(false)}
+                    className="flex items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-[#E0F7FF] hover:text-[#0369A1] transition"
+                  >
+                    <User className="w-4 h-4" />
+                    <span>Update Profile</span>
+                  </Link>
+
+                  <div className="my-1 border-t border-slate-100" />
+
+                  <button
+                    type="button"
+                    onClick={() => void handleSignOut()}
+                    className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span>Sign Out</span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -159,11 +257,10 @@ export default function Navbar({ user = null, onSignOut = () => {} }: NavbarProp
                 key={link.name}
                 href={link.href}
                 onClick={() => setMobileMenuOpen(false)}
-                className={`px-3 py-2 rounded-lg text-sm font-medium ${
-                  isActive(link.href)
+                className={`px-3 py-2 rounded-lg text-sm font-medium ${isActive(link.href)
                     ? "bg-[#E0F7FF] text-[#0369A1] font-semibold"
                     : "text-slate-700 hover:bg-slate-50"
-                }`}
+                  }`}
               >
                 {link.name}
               </Link>
@@ -171,7 +268,9 @@ export default function Navbar({ user = null, onSignOut = () => {} }: NavbarProp
           </div>
 
           <div className="pt-3 border-t border-slate-200">
-            {!user ? (
+            {isPending ? (
+              <div className="h-9 w-full rounded-lg bg-slate-100 animate-pulse" />
+            ) : !user ? (
               <div className="flex items-center gap-3">
                 <Link
                   href="/sign-in"
@@ -202,7 +301,7 @@ export default function Navbar({ user = null, onSignOut = () => {} }: NavbarProp
                   </span>
                 </div>
                 <Link
-                  href="/dashboard"
+                  href={dashboardHref}
                   onClick={() => setMobileMenuOpen(false)}
                   className="block w-full text-center py-2 text-sm font-medium rounded-lg bg-[#E0F7FF] text-[#0369A1]"
                 >
@@ -217,10 +316,7 @@ export default function Navbar({ user = null, onSignOut = () => {} }: NavbarProp
                 </Link>
                 <button
                   type="button"
-                  onClick={() => {
-                    setMobileMenuOpen(false);
-                    void onSignOut();
-                  }}
+                  onClick={() => void handleSignOut()}
                   className="w-full py-2 text-sm font-medium rounded-lg text-rose-600 bg-rose-50"
                 >
                   Sign Out
